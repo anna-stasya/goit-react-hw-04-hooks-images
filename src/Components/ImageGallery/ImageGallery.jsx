@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState, useEffect } from 'react';
 import Loader from 'react-loader-spinner';
 import cardAPI from '../Services/CardApi';
 import { CardErrorView } from './CardErrorView';
@@ -10,141 +10,149 @@ import ImageGalleryItem from '../ImageGalleryItem/ImageGalleryItem';
 import 'react-loader-spinner/dist/loader/css/react-spinner-loader.css';
 import s from './ImageGallery.module.css';
 
-class ImageGallery extends React.Component {
-  state = {
-    cardImage: [],
-    error: null,
-    status: 'idle',
-    page: 1,
-  };
+const Status = {
+  IDLE: 'idle',
+  PENDING: 'pending',
+  RESOLVED: 'resolved',
+  REJECTED: 'rejected',
+};
 
-  componentDidUpdate(prevProps, prevState) {
-    const prevName = prevProps.imageName;
-    const nextName = this.props.imageName;
+function ImageGallery({ imageName }) {
+  const [cardImage, setCardImage] = useState([]);
+  const [error, setError] = useState(null);
+  // const [status, setStatus] = useState('idle');
+  const [status, setStatus] = useState(Status.IDLE);
+  const [page, setPage] = useState(1);
+  const [alt, setAlt] = useState('');
+  const [largeImageURL, setLargeImageURL] = useState('');
 
-    if (prevName !== nextName) {
-      this.setState({ status: 'pending', page: 1 });
-
-      cardAPI
-        .fetchCard(nextName, this.state.page)
-        .then(cardImage => {
-          if (cardImage.total === 0) {
-            this.setState({
-              error: `Not found ${nextName}`,
-              status: 'rejected',
-            });
-          } else {
-            this.setState(prevState => ({
-              cardImage: cardImage.hits,
-              status: 'resolved',
-            }));
-          }
-        })
-        .catch(error => this.setState({ error, status: 'rejected' }));
+  useEffect(() => {
+    //==== если пустая строка ====
+    if (!imageName) {
+      return;
     }
 
-    if (this.state.page !== 1) {
+    setStatus(Status.PENDING);
+
+    if (page === 1) {
       cardAPI
-        .fetchCard(this.props.imageName, this.state.page)
-        .then(cardImage =>
-          this.setState(prevState => ({
-            cardImage: [...prevState.cardImage, ...cardImage.hits],
-            status: 'resolved',
-          })),
-        )
+        .fetchCard(imageName, page)
+        .then(cardImageNew => {
+          if (cardImageNew.total === 0) {
+            setError(`Not found ${imageName}`);
+            setStatus(Status.REJECTED);
+          } else {
+            setCardImage(cardImageNew.hits);
+            setStatus(Status.RESOLVED);
+          }
+        })
+        .catch(error => {
+          setError(error);
+          setStatus(Status.REJECTED);
+        });
+    }
+
+    if (page !== 1) {
+      cardAPI
+        .fetchCard(imageName, page)
+        .then(cardImageNew => {
+          setCardImage(prevState => [...prevState, ...cardImageNew.hits]);
+          setStatus(Status.RESOLVED);
+        })
         .then(() => {
           window.scrollTo({
             top: document.documentElement.scrollHeight,
             behavior: 'smooth',
           });
         })
-        .catch(error => this.setState({ error, status: 'rejected' }));
+        .catch(error => {
+          setError(error);
+          setStatus(Status.REJECTED);
+        });
     }
-  }
+  }, [imageName, page]);
 
-  loadMoreBtn = () => {
-    this.setState(prevState => ({
-      page: prevState.page + 1,
-    }));
+  //==== кнопка загрузить ещё ====
+  const loadMoreBtn = () => {
+    setPage(prevState => prevState + 1);
   };
 
   //====открыть модалку ===
-  onOpenModal = (largeImageUR, alt) => {
-    this.setState({
-      largeImageURL: largeImageUR,
-      alt: alt,
-    });
+  const onOpenModal = (largeImageURL, alt) => {
+    setLargeImageURL(largeImageURL);
+    setAlt(alt);
+    window.addEventListener('keydown', onEscClick);
+  };
+
+  //-----------------закрыть по ESС---------------------
+  const onEscClick = event => {
+    const ESC_KEY_CODE = 'Escape';
+
+    if (event.code === ESC_KEY_CODE) {
+      onCloseModal();
+    }
   };
   //====закрыть модалку ===
-  onCloseModal = () => {
-    this.setState({
-      largeImageURL: '',
-      alt: '',
-    });
+  const onCloseModal = () => {
+    setLargeImageURL('');
+    setAlt('');
+    window.removeEventListener('keydown', onEscClick);
   };
 
-  //===========================-------------render--------
-  render() {
-    console.log(this.state.cardImage);
-    const { error, status, largeImageURL } = this.state;
-    const images = this.state.cardImage;
+  //==== если пусто ====
+  if (status === Status.IDLE) {
+    return <div>While null, enter something</div>;
+  }
 
-    //==== если пусто ====
-    if (status === 'idle') {
-      return <div>While null, enter something</div>;
-    }
+  //==== что-то загружается (загрузка) ====
+  if (status === Status.PENDING) {
+    return (
+      <div>
+        <Loader
+          type="MutatingDots"
+          //type="Watch"
+          color="#00BFFF"
+          height={80}
+          width={80}
+          timeout={3000}
+        />
+      </div>
+    );
+  }
 
-    //==== что-то загружается (загрузка) ====
-    if (status === 'pending') {
-      return (
-        <div>
-          <Loader
-            type="MutatingDots"
-            //type="Watch"
-            color="#00BFFF"
-            height={80}
-            width={80}
-            timeout={3000}
-          />
-        </div>
-      );
-    }
-
-    //==== рендер всех картинок ====
-    if (status === 'resolved') {
-      return (
-        <ul className={s.ImageGallery}>
-          {/* ====рендер всех картинок==== */}
-          {images.map(img => {
-            return (
-              <ImageGalleryItem
-                key={img.id}
-                alt={img.tags}
-                webformatURL={img.webformatURL}
-                largeImageURL={img.largeImageURL}
-                onOpenModal={this.onOpenModal}
-              />
-            );
-          })}
-
-          <LoadMoreButton LoadMoreBtn={this.loadMoreBtn} />
-          {/* ====модалка==== */}
-          {largeImageURL && (
-            <Modal
-              largeImageURL={largeImageURL}
-              alt={this.state.alt}
-              onClose={this.onCloseModal}
+  //==== рендер всех картинок ====
+  if (status === Status.RESOLVED) {
+    return (
+      <ul className={s.ImageGallery}>
+        {/* ====рендер всех картинок==== */}
+        {cardImage.map(img => {
+          return (
+            <ImageGalleryItem
+              key={img.id}
+              alt={img.tags}
+              webformatURL={img.webformatURL}
+              largeImageURL={img.largeImageURL}
+              onOpenModal={onOpenModal}
             />
-          )}
-        </ul>
-      );
-    }
+          );
+        })}
 
-    //==== отклонено (ошибка) ====
-    if (status === 'rejected') {
-      console.log(error);
-      return <CardErrorView massage={error} />;
-    }
+        <LoadMoreButton LoadMoreBtn={loadMoreBtn} />
+        {/* ====модалка==== */}
+        {largeImageURL && (
+          <Modal
+            largeImageURL={largeImageURL}
+            alt={alt}
+            onClose={onCloseModal}
+          />
+        )}
+      </ul>
+    );
+  }
+
+  //==== отклонено (ошибка) ====
+  if (status === Status.REJECTED) {
+    return <CardErrorView massage={error} />;
   }
 }
 
